@@ -1,1 +1,2 @@
 certs/*.key
+certs/*.pem

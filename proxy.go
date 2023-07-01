@@ -11,15 +11,14 @@ import (
 )
 
 type ProxyConfig struct {
-	ServerCert      string
-	Hostname        string
-	ServerKey       string
-	InputPort       string
-	InputBindIP     string
-	OutputConnectIP string
-	HostString      string
-	HostIP          string
-	HostPort        string
+	ServerCert string
+	Hostname   string
+	ServerKey  string
+	ProxyPort  string
+	ProxyIP    string
+	HostString string
+	HostIP     string
+	HostPort   string
 }
 
 type Proxy struct {
@@ -32,6 +31,7 @@ func New(cfg *ProxyConfig) *Proxy {
 
 func (p *Proxy) Start() {
 	// Get the SSL certificate and private key.
+	// TODO: generate certs on the fly
 	cer, err := tls.LoadX509KeyPair(p.cfg.ServerCert, p.cfg.ServerKey)
 	if err != nil {
 		log.Println("Error loading certs : ", err)
@@ -43,18 +43,17 @@ func (p *Proxy) Start() {
 	TLSConfig := &tls.Config{
 		Certificates: []tls.Certificate{cer},
 		ServerName:   p.cfg.Hostname,
-		ClientAuth:   tls.NoClientCert,
 	}
 
 	// Listen on the input port.
-	ln, err := net.Listen("tcp", p.cfg.InputBindIP+":"+p.cfg.InputPort)
+	ln, err := net.Listen("tcp", p.cfg.ProxyIP+":"+p.cfg.ProxyPort)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer ln.Close()
 
-	log.Printf("INFO || Started Listner on %s::%s\n", p.cfg.InputBindIP, p.cfg.InputPort)
+	log.Printf("INFO || Started Listner on %s::%s\n", p.cfg.ProxyIP, p.cfg.ProxyPort)
 	for {
 		log.Println("INFO || [main] Waiting for incoming connections...")
 		conn, err := ln.Accept()
@@ -63,14 +62,40 @@ func (p *Proxy) Start() {
 			continue
 		}
 
+		// TODO: What happens when first req is not HTTP CONNECT??
 		hostString, _ := helpers.ConsumeConnect(conn)
+		host, port, _ := helpers.ResolveHost(hostString)
+		p.cfg.HostIP = host
+		p.cfg.HostPort = port
 		p.cfg.HostString = hostString
 		tlsConn := tls.Server(conn, TLSConfig)
-		handleNewConnection(tlsConn, p.cfg)
+		if true {
+			handleNewConnectionTransparent(conn, p.cfg)
+		} else {
+			handleNewConnection(tlsConn, p.cfg)
+		}
 	}
 
 }
 
+func handleNewConnectionTransparent(conn net.Conn, cfg *ProxyConfig) {
+	defer conn.Close()
+	log.Println("[Transparent] Received connection from: ", conn.RemoteAddr())
+	// Connect to the external host.
+	externalHost, err := net.Dial("tcp", cfg.HostIP+":"+cfg.HostPort)
+	if err != nil {
+		log.Printf("[main] Error connecting external host: %s\n", err)
+		return
+	}
+	defer externalHost.Close()
+	done := make(chan string)
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	go pipe(ctx, "client->host", conn, externalHost, done)
+	go pipe(ctx, "host-client", externalHost, conn, done)
+
+	log.Printf("Routine %s finished", <-done)
+	ctxCancel()
+}
 func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 	defer conn.Close()
 	log.Println("[main] Received connection from: ", conn.RemoteAddr())
@@ -82,16 +107,14 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 		return
 	}
 
-	host, port, _ := helpers.ResolveHost(cfg.HostString)
-
-	log.Print("Reslved host:port = " + host + ":" + port)
+	log.Print("Reslved host:port = " + cfg.HostIP + ":" + cfg.HostPort)
 	// Setup the TLS configuration for connecting to the target.
 	// Note that this configuration is deliberately insecure!
 	config := tls.Config{
 		InsecureSkipVerify: true,
 	}
 	// Connect to the external host.
-	externalHost, err := tls.Dial("tcp", host+":"+port, &config)
+	externalHost, err := tls.Dial("tcp", cfg.HostIP+":"+cfg.HostPort, &config)
 	if err != nil {
 		log.Printf("[main] Error connecting external host: %s\n", err)
 		return

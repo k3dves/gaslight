@@ -5,12 +5,11 @@ import "log"
 func main() {
 
 	config := &ProxyConfig{
-		ServerCert:      "certs/server.crt",
-		Hostname:        "gaslight.local",
-		ServerKey:       "certs/server.key",
-		InputPort:       "8888",
-		InputBindIP:     "127.0.0.1",
-		OutputConnectIP: "127.0.0.1",
+		ServerCert: "certs/ifconfig.me+1.pem",
+		Hostname:   "gaslight.local",
+		ServerKey:  "certs/ifconfig.me+1-key.pem",
+		ProxyPort:  "8888",
+		ProxyIP:    "127.0.0.1",
 	}
 	proxy := New(config)
 
