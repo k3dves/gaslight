@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"io"
 	"log"
@@ -101,31 +102,47 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 	}
 	defer externalHost.Close()
 
-	for {
-		go pipe(conn, externalHost)
-		go pipe(externalHost, conn)
-	}
+	done := make(chan string)
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	go pipe(ctx, "client->host", conn, externalHost, done)
+	go pipe(ctx, "host-client", externalHost, conn, done)
+
+	log.Printf("Routine %s finished", <-done)
+	ctxCancel()
+	return
+
 }
 
-func pipe(src, dest io.ReadWriter) {
+func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan string) {
+	defer func() {
+		log.Print("Closing go routine ", name)
+		done <- name
+	}()
+
 	for {
-		buff := make([]byte, 0xffff)
-		n, readErr := src.Read(buff)
-		if readErr != nil {
-			log.Print("Erorr while reading err=", readErr)
-			panic(readErr)
-		} else {
-			log.Printf("Read %d bytes %s", n, buff)
-		}
+		select {
 
-		n2, writeErr := dest.Write(buff[:n])
-
-		if writeErr != nil {
-			log.Print("Error while writing err: ", writeErr)
+		case <-ctx.Done():
 			return
 
-		} else {
-			log.Printf("Written %d bytes\n", n2)
+		default:
+			buff := make([]byte, 0xffff)
+			n, readErr := src.Read(buff)
+			if readErr != nil {
+				log.Print("Error while reading err=", readErr)
+				return
+			} else {
+				log.Printf("Read %d bytes %s", n, buff)
+			}
+
+			n2, writeErr := dest.Write(buff[:n])
+
+			if writeErr != nil {
+				log.Print("Error while writing err: ", writeErr)
+				return
+			} else {
+				log.Printf("Written %d bytes\n", n2)
+			}
 		}
 	}
 }
