@@ -1,29 +1,25 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/tls"
 	"io"
 	"log"
 	"net"
-	"net/http"
-	"strings"
+
+	"github.com/k3dves/gaslight/helpers"
 )
 
 type ProxyConfig struct {
-	ServerCert           string
-	Hostname             string
-	ServerKey            string
-	InputPort            string
-	ReturnPort           string
-	InterceptorPort      string
-	InputBindIP          string
-	InterceptorConnectIP string
-	ReturnBindIP         string
-	OutputConnectIP      string
-	HostString           string
+	ServerCert      string
+	Hostname        string
+	ServerKey       string
+	InputPort       string
+	InputBindIP     string
+	OutputConnectIP string
+	HostString      string
+	HostIP          string
+	HostPort        string
 }
 
 type Proxy struct {
@@ -67,7 +63,7 @@ func (p *Proxy) Start() {
 			continue
 		}
 
-		hostString, _ := consumeConnect(conn)
+		hostString, _ := helpers.ConsumeConnect(conn)
 		p.cfg.HostString = hostString
 		tlsConn := tls.Server(conn, TLSConfig)
 		handleNewConnection(tlsConn, p.cfg)
@@ -86,7 +82,7 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 		return
 	}
 
-	host, port, _ := resolveHost(cfg.HostString)
+	host, port, _ := helpers.ResolveHost(cfg.HostString)
 
 	log.Print("Reslved host:port = " + host + ":" + port)
 	// Setup the TLS configuration for connecting to the target.
@@ -109,7 +105,6 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 
 	log.Printf("Routine %s finished", <-done)
 	ctxCancel()
-	return
 
 }
 
@@ -145,29 +140,4 @@ func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan s
 			}
 		}
 	}
-}
-
-func consumeConnect(conn net.Conn) (string, error) {
-	// 64k data buffer.
-	buff := make([]byte, 0xffff)
-	conn.Read(buff)
-	r, _ := http.ReadRequest(bufio.NewReader(bytes.NewReader(buff)))
-	if r.Method != http.MethodConnect {
-		log.Panic("Client not using connect, method: ", r.Method)
-	}
-	conn.Write([]byte("HTTP/1.1 200 OK\n\r\n"))
-	log.Printf("Read %s from conn", string(buff))
-	log.Printf("Connect Consumed")
-	return r.Host, nil
-}
-
-func resolveHost(hostString string) (string, string, error) {
-	arr := strings.Split(hostString, ":")
-	host, port := arr[0], arr[1]
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		log.Panic("DNS resolution error " + err.Error())
-	}
-	log.Printf("Resolved hosts ip : %v", ips)
-	return ips[len(ips)-1].String(), port, nil
 }
