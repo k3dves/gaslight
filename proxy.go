@@ -55,7 +55,12 @@ func (p *Proxy) Start() {
 		//initalise a new connInfo struct for this conn
 		connObj := &models.ConnInfo{Conn: conn}
 		//HandleFirstRequest updates connObj is_https
-		hostString, _ := helpers.HandleFirstRequest(connObj)
+		hostString, err := helpers.HandleFirstRequest(connObj)
+		if err != nil {
+			log.Printf("ERR:: Invalid first request, err=%s\n", err)
+			conn.Close()
+			continue
+		}
 		hostname, hostip, port, _ := helpers.ResolveHost(hostString, connObj.Is_https)
 		//update the connObj
 		connObj.Hostip = hostip
@@ -148,19 +153,19 @@ func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan s
 			buff := make([]byte, 10000000)
 			n, readErr := src.Read(buff)
 			if readErr != nil || n == 0 {
-				log.Print("[Pipe]::Error while reading err=", readErr)
+				// log.Print("[Pipe]::Error while reading err=", readErr)
 				return
 			} else {
-				log.Printf("[Pipe]::Read %d bytes ", n)
+				// log.Printf("[Pipe]::Read %d bytes ", n)
 			}
 
-			n2, writeErr := dest.Write(buff[:n])
+			_, writeErr := dest.Write(buff[:n])
 
 			if writeErr != nil {
-				log.Print("[Pipe]::Error while writing err: ", writeErr)
+				// log.Print("[Pipe]::Error while writing err: ", writeErr)
 				return
 			} else {
-				log.Printf("[Pipe]::Written %d bytes\n", n2)
+				// log.Printf("[Pipe]::Written %d bytes\n", n2)
 			}
 		}
 	}

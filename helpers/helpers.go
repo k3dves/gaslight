@@ -56,10 +56,8 @@ func HandleFirstRequest(connObj *models.ConnInfo) (string, error) {
 	connObj.FirstRequest = buff[:n]
 	// ReadRequest does not support HTTP2 !!
 	r, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(buff)))
-	log.Print("Got request:: ", r)
-
 	if err != nil {
-		log.Print("Possibly not a vaid HTTP request, req= ", buff)
+		log.Printf("Possibly not a vaid HTTP request, req= %s, conn = %s", buff[:n], connObj.Conn.RemoteAddr())
 		return "", err
 	}
 	switch r.Method {
