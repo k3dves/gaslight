@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/k3dves/gaslight/helpers"
 )
@@ -64,15 +65,19 @@ func (p *Proxy) Start() {
 
 		// TODO: What happens when first req is not HTTP CONNECT??
 		hostString, _ := helpers.ConsumeConnect(conn)
-		host, port, _ := helpers.ResolveHost(hostString)
-		p.cfg.HostIP = host
+		hostname, hostip, port, _ := helpers.ResolveHost(hostString)
+		p.cfg.HostIP = hostip
 		p.cfg.HostPort = port
 		p.cfg.HostString = hostString
+		p.cfg.Hostname = hostname
 		tlsConn := tls.Server(conn, TLSConfig)
-		if true {
-			handleNewConnectionTransparent(conn, p.cfg)
+		if strings.HasSuffix(hostname, "ifconfig.me") {
+
+			go handleNewConnection(tlsConn, p.cfg)
+
 		} else {
-			handleNewConnection(tlsConn, p.cfg)
+
+			go handleNewConnectionTransparent(conn, p.cfg)
 		}
 	}
 
@@ -80,11 +85,11 @@ func (p *Proxy) Start() {
 
 func handleNewConnectionTransparent(conn net.Conn, cfg *ProxyConfig) {
 	defer conn.Close()
-	log.Println("[Transparent] Received connection from: ", conn.RemoteAddr())
+	log.Println("[Transparent]:: Received connection from: ", conn.RemoteAddr())
 	// Connect to the external host.
 	externalHost, err := net.Dial("tcp", cfg.HostIP+":"+cfg.HostPort)
 	if err != nil {
-		log.Printf("[main] Error connecting external host: %s\n", err)
+		log.Printf("[Transparent]:: Error connecting external host: %s\n", err)
 		return
 	}
 	defer externalHost.Close()
@@ -93,12 +98,12 @@ func handleNewConnectionTransparent(conn net.Conn, cfg *ProxyConfig) {
 	go pipe(ctx, "client->host", conn, externalHost, done)
 	go pipe(ctx, "host-client", externalHost, conn, done)
 
-	log.Printf("Routine %s finished", <-done)
+	log.Printf("[Transparent]::Routine %s finished", <-done)
 	ctxCancel()
 }
 func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 	defer conn.Close()
-	log.Println("[main] Received connection from: ", conn.RemoteAddr())
+	log.Println("[PROXY] Received connection from: ", conn.RemoteAddr())
 
 	// Perform the TLs handshake with client.
 	err := conn.Handshake()
@@ -107,7 +112,7 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 		return
 	}
 
-	log.Print("Reslved host:port = " + cfg.HostIP + ":" + cfg.HostPort)
+	log.Printf("[PROXY]:: Resolved %s::%s:%s\n", cfg.Hostname, cfg.HostIP, cfg.HostPort)
 	// Setup the TLS configuration for connecting to the target.
 	// Note that this configuration is deliberately insecure!
 	config := tls.Config{
@@ -116,7 +121,7 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 	// Connect to the external host.
 	externalHost, err := tls.Dial("tcp", cfg.HostIP+":"+cfg.HostPort, &config)
 	if err != nil {
-		log.Printf("[main] Error connecting external host: %s\n", err)
+		log.Printf("[PROXY]:: Error connecting external host: %s\n", err)
 		return
 	}
 	defer externalHost.Close()
@@ -126,14 +131,14 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 	go pipe(ctx, "client->host", conn, externalHost, done)
 	go pipe(ctx, "host-client", externalHost, conn, done)
 
-	log.Printf("Routine %s finished", <-done)
+	log.Printf("[PROXY]:: Routine %s finished", <-done)
 	ctxCancel()
 
 }
 
 func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan string) {
 	defer func() {
-		log.Print("Closing go routine ", name)
+		log.Print("[Pipe]::Closing go routine ", name)
 		done <- name
 	}()
 
@@ -144,22 +149,22 @@ func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan s
 			return
 
 		default:
-			buff := make([]byte, 0xffff)
+			buff := make([]byte, 10000000)
 			n, readErr := src.Read(buff)
-			if readErr != nil {
-				log.Print("Error while reading err=", readErr)
+			if readErr != nil || n == 0 {
+				log.Print("[Pipe]::Error while reading err=", readErr)
 				return
 			} else {
-				log.Printf("Read %d bytes %s", n, buff)
+				log.Printf("[Pipe]::Read %d bytes ", n)
 			}
 
 			n2, writeErr := dest.Write(buff[:n])
 
 			if writeErr != nil {
-				log.Print("Error while writing err: ", writeErr)
+				log.Print("[Pipe]::Error while writing err: ", writeErr)
 				return
 			} else {
-				log.Printf("Written %d bytes\n", n2)
+				log.Printf("[Pipe]::Written %d bytes\n", n2)
 			}
 		}
 	}
