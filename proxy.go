@@ -9,24 +9,14 @@ import (
 	"strings"
 
 	"github.com/k3dves/gaslight/helpers"
+	"github.com/k3dves/gaslight/models"
 )
 
-type ProxyConfig struct {
-	ServerCert string
-	Hostname   string
-	ServerKey  string
-	ProxyPort  string
-	ProxyIP    string
-	HostString string
-	HostIP     string
-	HostPort   string
-}
-
 type Proxy struct {
-	cfg *ProxyConfig
+	cfg *models.ProxyConfig
 }
 
-func New(cfg *ProxyConfig) *Proxy {
+func New(cfg *models.ProxyConfig) *Proxy {
 	return &Proxy{cfg: cfg}
 }
 
@@ -43,7 +33,7 @@ func (p *Proxy) Start() {
 	// Setup the TLS configuration.
 	TLSConfig := &tls.Config{
 		Certificates: []tls.Certificate{cer},
-		ServerName:   p.cfg.Hostname,
+		ServerName:   p.cfg.ServerHostName,
 	}
 
 	// Listen on the input port.
@@ -62,64 +52,70 @@ func (p *Proxy) Start() {
 			log.Println(err)
 			continue
 		}
+		//initalise a new connInfo struct for this conn
+		connObj := &models.ConnInfo{Conn: conn}
+		//HandleFirstRequest updates connObj is_https
+		hostString, _ := helpers.HandleFirstRequest(connObj)
+		hostname, hostip, port, _ := helpers.ResolveHost(hostString, connObj.Is_https)
+		//update the connObj
+		connObj.Hostip = hostip
+		connObj.Hostport = port
+		connObj.Hostname = hostname
 
-		// TODO: What happens when first req is not HTTP CONNECT??
-		hostString, _ := helpers.ConsumeConnect(conn)
-		hostname, hostip, port, _ := helpers.ResolveHost(hostString)
-		p.cfg.HostIP = hostip
-		p.cfg.HostPort = port
-		p.cfg.HostString = hostString
-		p.cfg.Hostname = hostname
-		tlsConn := tls.Server(conn, TLSConfig)
-		if strings.HasSuffix(hostname, "ifconfig.me") {
-
-			go handleNewConnection(tlsConn, p.cfg)
+		if strings.HasSuffix(hostname, "ifconfig.me") && connObj.Is_https {
+			tlsConn := tls.Server(conn, TLSConfig)
+			connObj.TlsConn = tlsConn
+			go handleNewConnection(connObj, p.cfg)
 
 		} else {
-
-			go handleNewConnectionTransparent(conn, p.cfg)
+			go handleNewConnectionTransparent(connObj, p.cfg)
 		}
 	}
 
 }
 
-func handleNewConnectionTransparent(conn net.Conn, cfg *ProxyConfig) {
-	defer conn.Close()
-	log.Println("[Transparent]:: Received connection from: ", conn.RemoteAddr())
+func handleNewConnectionTransparent(connObj *models.ConnInfo, cfg *models.ProxyConfig) {
+	defer connObj.Conn.Close()
+	log.Println("[Transparent]:: Received connection from: ", connObj.Conn.RemoteAddr())
 	// Connect to the external host.
-	externalHost, err := net.Dial("tcp", cfg.HostIP+":"+cfg.HostPort)
+	externalHost, err := net.Dial("tcp", connObj.Hostip+":"+connObj.Hostport)
 	if err != nil {
 		log.Printf("[Transparent]:: Error connecting external host: %s\n", err)
 		return
 	}
 	defer externalHost.Close()
+	// if this is a HTTP connection , we've to send the first response
+	if !connObj.Is_https {
+		externalHost.Write(connObj.FirstRequest)
+	}
 	done := make(chan string)
 	ctx, ctxCancel := context.WithCancel(context.Background())
-	go pipe(ctx, "client->host", conn, externalHost, done)
-	go pipe(ctx, "host-client", externalHost, conn, done)
+	go pipe(ctx, "client->host", connObj.Conn, externalHost, done)
+	go pipe(ctx, "host-client", externalHost, connObj.Conn, done)
 
 	log.Printf("[Transparent]::Routine %s finished", <-done)
 	ctxCancel()
 }
-func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
-	defer conn.Close()
-	log.Println("[PROXY] Received connection from: ", conn.RemoteAddr())
+
+func handleNewConnection(connObj *models.ConnInfo, cfg *models.ProxyConfig) {
+	defer connObj.TlsConn.Close()
+	log.Println("[PROXY] Received connection from: ", connObj.Conn.RemoteAddr())
 
 	// Perform the TLs handshake with client.
-	err := conn.Handshake()
+	err := connObj.TlsConn.Handshake()
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	log.Printf("[PROXY]:: Resolved %s::%s:%s\n", cfg.Hostname, cfg.HostIP, cfg.HostPort)
+	log.Printf("[PROXY]:: Resolved %s::%s:%s\n", connObj.Hostname, connObj.Hostip, connObj.Hostport)
 	// Setup the TLS configuration for connecting to the target.
 	// Note that this configuration is deliberately insecure!
 	config := tls.Config{
 		InsecureSkipVerify: true,
 	}
 	// Connect to the external host.
-	externalHost, err := tls.Dial("tcp", cfg.HostIP+":"+cfg.HostPort, &config)
+	externalHost, err := tls.Dial("tcp", connObj.Hostip+":"+connObj.Hostport, &config)
 	if err != nil {
 		log.Printf("[PROXY]:: Error connecting external host: %s\n", err)
 		return
@@ -128,8 +124,8 @@ func handleNewConnection(conn *tls.Conn, cfg *ProxyConfig) {
 
 	done := make(chan string)
 	ctx, ctxCancel := context.WithCancel(context.Background())
-	go pipe(ctx, "client->host", conn, externalHost, done)
-	go pipe(ctx, "host-client", externalHost, conn, done)
+	go pipe(ctx, "client->host", connObj.TlsConn, externalHost, done)
+	go pipe(ctx, "host-client", externalHost, connObj.TlsConn, done)
 
 	log.Printf("[PROXY]:: Routine %s finished", <-done)
 	ctxCancel()

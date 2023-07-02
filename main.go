@@ -1,15 +1,19 @@
 package main
 
-import "log"
+import (
+	"log"
+
+	"github.com/k3dves/gaslight/models"
+)
 
 func main() {
 
-	config := &ProxyConfig{
-		ServerCert: "certs/ifconfig.me+1.pem",
-		Hostname:   "gaslight.local",
-		ServerKey:  "certs/ifconfig.me+1-key.pem",
-		ProxyPort:  "8888",
-		ProxyIP:    "127.0.0.1",
+	config := &models.ProxyConfig{
+		ServerCert:     "certs/ifconfig.me+1.pem",
+		ServerHostName: "gaslight.local",
+		ServerKey:      "certs/ifconfig.me+1-key.pem",
+		ProxyPort:      "8888",
+		ProxyIP:        "127.0.0.1",
 	}
 	proxy := New(config)
 
