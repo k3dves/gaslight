@@ -1,0 +1,4 @@
+// Features to implemment 
+1. Certificate generation on the fly 
+2. TLS/TCP connection reuse
+3. Add capability to use custom interceptor functions.
