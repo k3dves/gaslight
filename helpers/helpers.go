@@ -3,6 +3,7 @@ package helpers
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -52,12 +53,15 @@ func HandleFirstRequest(log *zap.SugaredLogger, connObj *models.ConnInfo) (strin
 	//TODO is 64K enough??
 	buff := make([]byte, 0xffff)
 	n, _ := connObj.Conn.Read(buff)
+	if n == 0 {
+		return "", errors.New("Empty request Body")
+	}
 	connObj.FirstRequest = buff[:n]
 	// ReadRequest does not support HTTP2 !!
 	r, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(buff)))
 	if err != nil {
 		log.Error("Possibly not a vaid HTTP request", "req", buff[:n], "conn", connObj.Conn.RemoteAddr())
-		return "", err
+		return "", errors.New("Malformed HTTP request")
 	}
 	switch r.Method {
 	case http.MethodConnect:

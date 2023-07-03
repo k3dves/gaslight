@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"strings"
@@ -63,7 +64,7 @@ func (p *Proxy) Start() {
 		//HandleFirstRequest updates connObj is_https
 		hostString, err := helpers.HandleFirstRequest(log, connObj)
 		if err != nil {
-			log.Error("invalid first request", "err", err)
+			log.Error("invalid first request ", "err ", err)
 			conn.Close()
 			continue
 		}
@@ -133,6 +134,7 @@ func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, cfg *mod
 		log.Error("Error connecting external host", "err", err)
 		return
 	}
+
 	defer externalHost.Close()
 
 	done := make(chan string)
@@ -160,23 +162,39 @@ func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan s
 			return
 
 		default:
+			// TODO: How much memory do we need to allocate??
 			buff := make([]byte, 10000000)
 			n, readErr := src.Read(buff)
-			if readErr != nil || n == 0 {
-				log.Info("Error while reading", "err", readErr)
+
+			if readErr != nil {
+				// we're done reading or the client closed the connection.
+				if errors.Is(readErr, io.EOF) || errors.Is(readErr, net.ErrClosed) {
+					log.Info("Error while reading ", "err ", readErr)
+					return
+				}
+				// we should not get here
+				log.Error("Error while reading ", "err ", readErr)
 				return
-			} else {
-				log.Debug("Read bytes", "count", n)
 			}
+			// keep reading
+			log.Debug("Read bytes", "count", n)
 
 			n2, writeErr := dest.Write(buff[:n])
 
 			if writeErr != nil {
-				log.Info("Error while writing", "err", writeErr)
+				// client closed connection
+				if errors.Is(writeErr, net.ErrClosed) {
+					log.Info("Error while writing ", "err ", writeErr)
+					return
+				}
+
+				log.Error("Error while writing ", "err ", writeErr)
 				return
-			} else {
-				log.Debug("Written bytes", "count", n2)
 			}
+
+			//keep writing
+			log.Debug("Written bytes ", "count ", n2)
+
 		}
 	}
 }
