@@ -3,26 +3,25 @@ package helpers
 import (
 	"bufio"
 	"bytes"
-	"crypto/tls"
-	"log"
 	"net"
 	"net/http"
 	"strings"
 
 	"github.com/k3dves/gaslight/models"
+	"go.uber.org/zap"
 )
 
-func consumeConnect(conn net.Conn) error {
+func consumeConnect(log *zap.SugaredLogger, conn net.Conn) error {
 	_, err := conn.Write([]byte("HTTP/1.1 200 OK\n\r\n"))
 	if err != nil {
-		log.Print("consumeConnect:: Error := ", err)
+		log.Error("Error in consumeConnect", "err", err)
 		return err
 	}
-	log.Printf("Connect Request Consumed")
+	log.Debug("Connect Request Consumed")
 	return nil
 }
 
-func ResolveHost(hostString string, isHTTPS bool) (string, string, string, error) {
+func ResolveHost(log *zap.SugaredLogger, hostString string, isHTTPS bool) (string, string, string, error) {
 	arr := strings.Split(hostString, ":")
 	var host, port string
 	if len(arr) < 2 {
@@ -38,17 +37,17 @@ func ResolveHost(hostString string, isHTTPS bool) (string, string, string, error
 	}
 	ips, err := net.LookupIP(host)
 	if err != nil {
-		log.Panic("DNS resolution error " + err.Error())
+		log.Error("DNS resolution error ", "err", err.Error())
 	}
-	log.Printf("Resolved hosts ip : %v", ips)
+	log.Debug("Resolved hosts ip : %v", ips)
 	return host, ips[len(ips)-1].String(), port, nil
 }
 
-func GetCertificate(hello *tls.ClientHelloInfo) {
-	log.Printf("Got client hello %+v \n", hello)
-}
+// func GetCertificate(hello *tls.ClientHelloInfo) {
+// 	log.Printf("Got client hello %+v \n", hello)
+// }
 
-func HandleFirstRequest(connObj *models.ConnInfo) (string, error) {
+func HandleFirstRequest(log *zap.SugaredLogger, connObj *models.ConnInfo) (string, error) {
 	// 64k data buffer.
 	//TODO is 64K enough??
 	buff := make([]byte, 0xffff)
@@ -57,14 +56,14 @@ func HandleFirstRequest(connObj *models.ConnInfo) (string, error) {
 	// ReadRequest does not support HTTP2 !!
 	r, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(buff)))
 	if err != nil {
-		log.Printf("Possibly not a vaid HTTP request, req= %s, conn = %s", buff[:n], connObj.Conn.RemoteAddr())
+		log.Error("Possibly not a vaid HTTP request", "req", buff[:n], "conn", connObj.Conn.RemoteAddr())
 		return "", err
 	}
 	switch r.Method {
 	case http.MethodConnect:
 		connObj.Is_https = true
 		// This is a connect method, call consume connect
-		consumeConnect(connObj.Conn)
+		consumeConnect(log, connObj.Conn)
 
 	default:
 		// set the contex is_https to false
