@@ -53,7 +53,7 @@ func (p *Proxy) Start() {
 
 	log.Info("Stared Proxy Listener", "IP", p.cfg.ProxyIP, "PORT", p.cfg.ProxyPort)
 	for {
-		log.Info("Waiting for incoming connections")
+		log.Debug("Waiting for incoming connections")
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Error(err)
@@ -64,7 +64,7 @@ func (p *Proxy) Start() {
 		//HandleFirstRequest updates connObj is_https
 		hostString, err := helpers.HandleFirstRequest(log, connObj)
 		if err != nil {
-			log.Error("invalid first request ", "err ", err)
+			log.Warn("invalid first request ", "err ", err)
 			conn.Close()
 			continue
 		}
@@ -89,7 +89,7 @@ func (p *Proxy) Start() {
 func handleNewConnectionTransparent(ctx context.Context, connObj *models.ConnInfo, cfg *models.ProxyConfig) {
 	defer connObj.Conn.Close()
 	log := ctx.Value("logger").(*zap.SugaredLogger)
-	log.Info("Received connection from: ", "add", connObj.Conn.RemoteAddr())
+	log.Debug("Received connection from: ", "add", connObj.Conn.RemoteAddr())
 	// Connect to the external host.
 	externalHost, err := net.Dial("tcp", connObj.Hostip+":"+connObj.Hostport)
 	if err != nil {
@@ -108,6 +108,7 @@ func handleNewConnectionTransparent(ctx context.Context, connObj *models.ConnInf
 
 	log.Debug("Go Routine %s finished", <-done)
 	ctxCancel()
+	log.Debug("Closing connection for host ", connObj.Hostname)
 }
 
 func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, cfg *models.ProxyConfig) {
@@ -144,14 +145,17 @@ func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, cfg *mod
 
 	log.Debug("Routine %s finished", <-done)
 	ctxCancel()
+	log.Debug("Closing connection for host ", connObj.Hostname)
 
 }
 
 func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan string) {
 
+	var rcnt, wcnt int
 	log := ctx.Value("logger").(*zap.SugaredLogger)
 	defer func() {
 		log.Debug("Closing go routine ", "name", name)
+		log.Info("Read Write Count ", "READ= ", rcnt, " WRITE= ", wcnt)
 		done <- name
 	}()
 
@@ -178,6 +182,7 @@ func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan s
 			}
 			// keep reading
 			log.Debug("Read bytes", "count", n)
+			rcnt += 1
 
 			n2, writeErr := dest.Write(buff[:n])
 
@@ -194,6 +199,7 @@ func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan s
 
 			//keep writing
 			log.Debug("Written bytes ", "count ", n2)
+			wcnt += 1
 
 		}
 	}
