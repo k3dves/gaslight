@@ -23,3 +23,11 @@ type ConnInfo struct {
 	Hostport     string
 	FirstRequest []byte
 }
+
+//Link is a custom type having underlying type as string.
+//It is used to describe the tcp connection direction, i.e. if the link is form client->server
+//we read from client and write it to server and NOT vice-versa
+type Link string
+
+var LinkClientToServer Link = "client->server"
+var LinkServerToClient Link = "server->client"

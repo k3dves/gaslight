@@ -96,12 +96,12 @@ func handleNewConnectionTransparent(ctx context.Context, connObj *models.ConnInf
 	if !connObj.Is_https {
 		externalHost.Write(connObj.FirstRequest)
 	}
-	done := make(chan string)
+	done := make(chan models.Link)
 	ctx, ctxCancel := context.WithCancel(ctx)
 	go helpers.Pipe(ctx, "client->host", connObj.Conn, externalHost, done)
 	go helpers.Pipe(ctx, "host-client", externalHost, connObj.Conn, done)
 
-	log.Debug("Go Routine %s finished", <-done)
+	log.Info("Go Routine %s finished", <-done)
 	ctxCancel()
 	log.Debug("Closing connection for host ", connObj.Hostname)
 }
@@ -133,7 +133,7 @@ func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, cfg *mod
 
 	defer externalHost.Close()
 
-	done := make(chan string)
+	done := make(chan models.Link)
 	ctx, ctxCancel := context.WithCancel(ctx)
 	go helpers.Pipe(ctx, "client->host", connObj.TlsConn, externalHost, done)
 	go helpers.Pipe(ctx, "host-client", externalHost, connObj.TlsConn, done)

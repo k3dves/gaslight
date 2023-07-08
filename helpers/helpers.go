@@ -82,7 +82,7 @@ func HandleFirstRequest(log *zap.SugaredLogger, connObj *models.ConnInfo) (strin
 }
 
 //Pipe facilitates communication between src and dest connections
-func Pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan string) {
+func Pipe(ctx context.Context, name models.Link, src, dest io.ReadWriter, done chan models.Link) {
 
 	var rcnt, wcnt int
 	log := ctx.Value("logger").(*zap.SugaredLogger)
