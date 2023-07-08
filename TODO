@@ -1,6 +1,7 @@
 // Features to implemment 
 1. Certificate generation on the fly. 
-2. TLS/TCP connection reuse.
+2. TLS/TCP connection reuse. // Done
 3. Add capability to use custom interceptor functions.
 4. HTTP2 support.
 5. ALPN preserve.
+6. Take config options from YAML file

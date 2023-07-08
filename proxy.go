@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"errors"
-	"io"
 	"net"
 	"strings"
 
@@ -12,9 +10,6 @@ import (
 	"github.com/k3dves/gaslight/models"
 	"go.uber.org/zap"
 )
-
-//alias to logger type
-type zlog *zap.SugaredLogger
 
 type Proxy struct {
 	ctx context.Context
@@ -103,8 +98,8 @@ func handleNewConnectionTransparent(ctx context.Context, connObj *models.ConnInf
 	}
 	done := make(chan string)
 	ctx, ctxCancel := context.WithCancel(ctx)
-	go pipe(ctx, "client->host", connObj.Conn, externalHost, done)
-	go pipe(ctx, "host-client", externalHost, connObj.Conn, done)
+	go helpers.Pipe(ctx, "client->host", connObj.Conn, externalHost, done)
+	go helpers.Pipe(ctx, "host-client", externalHost, connObj.Conn, done)
 
 	log.Debug("Go Routine %s finished", <-done)
 	ctxCancel()
@@ -140,67 +135,11 @@ func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, cfg *mod
 
 	done := make(chan string)
 	ctx, ctxCancel := context.WithCancel(ctx)
-	go pipe(ctx, "client->host", connObj.TlsConn, externalHost, done)
-	go pipe(ctx, "host-client", externalHost, connObj.TlsConn, done)
+	go helpers.Pipe(ctx, "client->host", connObj.TlsConn, externalHost, done)
+	go helpers.Pipe(ctx, "host-client", externalHost, connObj.TlsConn, done)
 
 	log.Debug("Routine %s finished", <-done)
 	ctxCancel()
 	log.Debug("Closing connection for host ", connObj.Hostname)
 
-}
-
-func pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan string) {
-
-	var rcnt, wcnt int
-	log := ctx.Value("logger").(*zap.SugaredLogger)
-	defer func() {
-		log.Debug("Closing go routine ", "name", name)
-		log.Info("Read Write Count ", "READ= ", rcnt, " WRITE= ", wcnt)
-		done <- name
-	}()
-
-	for {
-		select {
-
-		case <-ctx.Done():
-			return
-
-		default:
-			// TODO: How much memory do we need to allocate??
-			buff := make([]byte, 10000000)
-			n, readErr := src.Read(buff)
-
-			if readErr != nil {
-				// we're done reading or the client closed the connection.
-				if errors.Is(readErr, io.EOF) || errors.Is(readErr, net.ErrClosed) {
-					log.Info("Error while reading ", "err ", readErr)
-					return
-				}
-				// we should not get here
-				log.Error("Error while reading ", "err ", readErr)
-				return
-			}
-			// keep reading
-			log.Debug("Read bytes", "count", n)
-			rcnt += 1
-
-			n2, writeErr := dest.Write(buff[:n])
-
-			if writeErr != nil {
-				// client closed connection
-				if errors.Is(writeErr, net.ErrClosed) {
-					log.Info("Error while writing ", "err ", writeErr)
-					return
-				}
-
-				log.Error("Error while writing ", "err ", writeErr)
-				return
-			}
-
-			//keep writing
-			log.Debug("Written bytes ", "count ", n2)
-			wcnt += 1
-
-		}
-	}
 }

@@ -3,7 +3,9 @@ package helpers
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -77,4 +79,61 @@ func HandleFirstRequest(log *zap.SugaredLogger, connObj *models.ConnInfo) (strin
 
 	// finally return host string
 	return r.Host, nil
+}
+
+//Pipe facilitates communication between src and dest connections
+func Pipe(ctx context.Context, name string, src, dest io.ReadWriter, done chan string) {
+
+	var rcnt, wcnt int
+	log := ctx.Value("logger").(*zap.SugaredLogger)
+	defer func() {
+		log.Debug("Closing go routine ", "name", name)
+		log.Info("Read Write Count ", "READ= ", rcnt, " WRITE= ", wcnt)
+		done <- name
+	}()
+
+	for {
+		select {
+
+		case <-ctx.Done():
+			return
+
+		default:
+			// TODO: How much memory do we need to allocate??
+			buff := make([]byte, 10000000)
+			n, readErr := src.Read(buff)
+
+			if readErr != nil {
+				// we're done reading or the client closed the connection.
+				if errors.Is(readErr, io.EOF) || errors.Is(readErr, net.ErrClosed) {
+					log.Info("Error while reading ", "err ", readErr)
+					return
+				}
+				// we should not get here
+				log.Error("Error while reading ", "err ", readErr)
+				return
+			}
+			// keep reading
+			log.Debug("Read bytes", "count", n)
+			rcnt += 1
+
+			n2, writeErr := dest.Write(buff[:n])
+
+			if writeErr != nil {
+				// client closed connection
+				if errors.Is(writeErr, net.ErrClosed) {
+					log.Info("Error while writing ", "err ", writeErr)
+					return
+				}
+
+				log.Error("Error while writing ", "err ", writeErr)
+				return
+			}
+
+			//keep writing
+			log.Debug("Written bytes ", "count ", n2)
+			wcnt += 1
+
+		}
+	}
 }

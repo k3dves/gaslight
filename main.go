@@ -12,7 +12,9 @@ func main() {
 	zlog := zap.Must(zap.NewProduction())
 	logger := zlog.Sugar()
 	defer logger.Sync()
+
 	ctx := context.WithValue(context.Background(), "logger", logger)
+
 	config := &models.ProxyConfig{
 		ServerCert:     "certs/ifconfig.me+1.pem",
 		ServerHostName: "gaslight.local",
