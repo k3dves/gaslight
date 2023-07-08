@@ -1,5 +1,5 @@
 # GASLIGHT
-## A extensible HTTPS/HTTP proxy written in golang  
+## An extensible HTTPS/HTTP proxy written in golang  
 ---
 
 ### Features:
