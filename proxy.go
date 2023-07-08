@@ -12,12 +12,22 @@ import (
 )
 
 type Proxy struct {
-	ctx context.Context
-	cfg *models.ProxyConfig
+	ctx                context.Context
+	cfg                *models.ProxyConfig
+	clientToServerHook models.Hook
+	serverToClientHook models.Hook
 }
 
 func New(ctx context.Context, cfg *models.ProxyConfig) *Proxy {
 	return &Proxy{ctx: ctx, cfg: cfg}
+}
+
+func (p *Proxy) RegisterHook(kind models.HookType, hook models.Hook) {
+	if kind == models.HookTypeClientToServer {
+		p.clientToServerHook = hook
+	} else if kind == models.HookTypeServerToClient {
+		p.serverToClientHook = hook
+	}
 }
 
 func (p *Proxy) Start() {
@@ -72,16 +82,16 @@ func (p *Proxy) Start() {
 		if strings.HasSuffix(hostname, "ifconfig.me") && connObj.Is_https {
 			tlsConn := tls.Server(conn, TLSConfig)
 			connObj.TlsConn = tlsConn
-			go handleNewConnection(p.ctx, connObj, p.cfg)
+			go handleNewConnection(p.ctx, connObj, p)
 
 		} else {
-			go handleNewConnectionTransparent(p.ctx, connObj, p.cfg)
+			go handleNewConnectionTransparent(p.ctx, connObj, p)
 		}
 	}
 
 }
 
-func handleNewConnectionTransparent(ctx context.Context, connObj *models.ConnInfo, cfg *models.ProxyConfig) {
+func handleNewConnectionTransparent(ctx context.Context, connObj *models.ConnInfo, proxy *Proxy) {
 	defer connObj.Conn.Close()
 	log := ctx.Value("logger").(*zap.SugaredLogger)
 	log.Debug("Received connection from: ", "add", connObj.Conn.RemoteAddr())
@@ -92,21 +102,24 @@ func handleNewConnectionTransparent(ctx context.Context, connObj *models.ConnInf
 		return
 	}
 	defer externalHost.Close()
-	// if this is a HTTP connection , we've to send the first response
+	var hookCtoS, hookStoC models.Hook
+	// if this is a HTTP connection , we've to send the first response also attach hooks
 	if !connObj.Is_https {
 		externalHost.Write(connObj.FirstRequest)
+		hookCtoS = proxy.clientToServerHook
+		hookStoC = proxy.serverToClientHook
 	}
-	done := make(chan models.Link)
+	done := make(chan models.HookType)
 	ctx, ctxCancel := context.WithCancel(ctx)
-	go helpers.Pipe(ctx, "client->host", connObj.Conn, externalHost, done)
-	go helpers.Pipe(ctx, "host-client", externalHost, connObj.Conn, done)
+	go helpers.Pipe(ctx, "client->host", connObj.Conn, externalHost, done, hookCtoS)
+	go helpers.Pipe(ctx, "host-client", externalHost, connObj.Conn, done, hookStoC)
 
 	log.Info("Go Routine %s finished", <-done)
 	ctxCancel()
 	log.Debug("Closing connection for host ", connObj.Hostname)
 }
 
-func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, cfg *models.ProxyConfig) {
+func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, proxy *Proxy) {
 	defer connObj.TlsConn.Close()
 	log := ctx.Value("logger").(*zap.SugaredLogger)
 	log.Debug("Received connection ", "addr", connObj.Conn.RemoteAddr())
@@ -133,10 +146,10 @@ func handleNewConnection(ctx context.Context, connObj *models.ConnInfo, cfg *mod
 
 	defer externalHost.Close()
 
-	done := make(chan models.Link)
+	done := make(chan models.HookType)
 	ctx, ctxCancel := context.WithCancel(ctx)
-	go helpers.Pipe(ctx, "client->host", connObj.TlsConn, externalHost, done)
-	go helpers.Pipe(ctx, "host-client", externalHost, connObj.TlsConn, done)
+	go helpers.Pipe(ctx, "client->host", connObj.TlsConn, externalHost, done, proxy.clientToServerHook)
+	go helpers.Pipe(ctx, "host-client", externalHost, connObj.TlsConn, done, proxy.serverToClientHook)
 
 	log.Debug("Routine %s finished", <-done)
 	ctxCancel()

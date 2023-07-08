@@ -82,7 +82,7 @@ func HandleFirstRequest(log *zap.SugaredLogger, connObj *models.ConnInfo) (strin
 }
 
 //Pipe facilitates communication between src and dest connections
-func Pipe(ctx context.Context, name models.Link, src, dest io.ReadWriter, done chan models.Link) {
+func Pipe(ctx context.Context, name models.HookType, src, dest io.ReadWriter, done chan models.HookType, hook models.Hook) {
 
 	var rcnt, wcnt int
 	log := ctx.Value("logger").(*zap.SugaredLogger)
@@ -100,7 +100,7 @@ func Pipe(ctx context.Context, name models.Link, src, dest io.ReadWriter, done c
 
 		default:
 			// TODO: How much memory do we need to allocate??
-			buff := make([]byte, 10000000)
+			buff := make([]byte, 1000000)
 			n, readErr := src.Read(buff)
 
 			if readErr != nil {
@@ -117,7 +117,18 @@ func Pipe(ctx context.Context, name models.Link, src, dest io.ReadWriter, done c
 			log.Debug("Read bytes", "count", n)
 			rcnt += 1
 
-			n2, writeErr := dest.Write(buff[:n])
+			//shirnk the buf to only the count of bytes read. TODO: is there a better way?
+			buff = buff[:n]
+
+			//execute the hook if any
+			if hook != nil {
+				herr := hook(ctx, &buff)
+				if herr != nil {
+					log.Error("plugin returned an error ", "err: ", herr)
+				}
+			}
+
+			n2, writeErr := dest.Write(buff)
 
 			if writeErr != nil {
 				// client closed connection

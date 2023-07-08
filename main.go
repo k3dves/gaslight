@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/k3dves/gaslight/models"
+	"github.com/k3dves/gaslight/plugins"
 	"go.uber.org/zap"
 )
 
@@ -22,7 +23,12 @@ func main() {
 		ProxyPort:      "8888",
 		ProxyIP:        "127.0.0.1",
 	}
+	//create a new proxy instance
 	proxy := New(ctx, config)
+
+	//registe hooks
+	proxy.RegisterHook(models.HookTypeClientToServer, plugins.SimpleLogger)
+	proxy.RegisterHook(models.HookTypeServerToClient, plugins.SimpleLogger)
 
 	logger.Info("Starting proxy server", config)
 	proxy.Start()
