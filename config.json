@@ -1,0 +1,7 @@
+{
+    "server_cert": "certs/ifconfig.me+1.pem",
+    "server_key": "certs/ifconfig.me+1-key.pem",
+    "server_hostname": "gaslight.local",
+    "proxy_port": "8888",
+    "proxty_ip": "127.0.0.1"
+}

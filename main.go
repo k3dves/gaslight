@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
 
 	"github.com/k3dves/gaslight/models"
 	"github.com/k3dves/gaslight/plugins"
@@ -16,13 +19,17 @@ func main() {
 
 	ctx := context.WithValue(context.Background(), "logger", logger)
 
-	config := &models.ProxyConfig{
-		ServerCert:     "certs/ifconfig.me+1.pem",
-		ServerHostName: "gaslight.local",
-		ServerKey:      "certs/ifconfig.me+1-key.pem",
-		ProxyPort:      "8888",
-		ProxyIP:        "127.0.0.1",
+	data, err := os.ReadFile("config.json")
+	if err != nil {
+		logger.Fatal("cannot read config file")
 	}
+	config := new(models.ProxyConfig)
+	err = json.Unmarshal(data, config)
+	if err != nil {
+		logger.Fatal("invalid config")
+	}
+
+	fmt.Printf("config %+v\n", config)
 	//create a new proxy instance
 	proxy := New(ctx, config)
 

@@ -7,11 +7,11 @@ import (
 )
 
 type ProxyConfig struct {
-	ServerCert     string
-	ServerKey      string
-	ServerHostName string
-	ProxyPort      string
-	ProxyIP        string
+	ServerCert     string `json:"server_cert"`
+	ServerKey      string `json:"server_key"`
+	ServerHostName string `json:"server_hostname"`
+	ProxyPort      string `json:"proxy_port"`
+	ProxyIP        string `json:"proxty_ip"`
 }
 
 // Internal connInfo struct which get updated based on incoming connection
